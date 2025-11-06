@@ -1,5 +1,6 @@
 import re
 import fitz  # PyMuPDF
+import pdfplumber
 import pandas as pd
 import streamlit as st
 import io
@@ -7,10 +8,21 @@ import io
 def extract_text_from_pdf(pdf_file):
     """Trích xuất toàn bộ text từ file PDF (file object từ Streamlit)."""
     text = ""
-    with fitz.open(stream=pdf_file.read(), filetype="pdf") as pdf:
-        for page in pdf:
-            text += page.get_text("text")
+    # pdfplumber -> lấy bảng, text có cấu trúc
+    pdf_file.seek(0)
+    with pdfplumber.open(pdf_file) as pdf:
+        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
     return text
+
+def find_text_before_keyword(text, keyword):
+    """
+    Extract the number (or text) immediately before the given keyword.
+    Example: '31 Cartons of Footwear Division Goods' -> '31'
+    """
+    pattern = rf'(\d+)\s+(?={re.escape(keyword)})'
+    match = re.search(pattern, text)
+    return match.group(1) if match else None
 
 def find_text_after_keyword(text, keyword, num_chars=50):
     """
@@ -33,7 +45,6 @@ def find_text_after_keyword(text, keyword, num_chars=50):
 
     return None
 
-
 def split_by_bill_names(text, bill_names):
     """
     Tách text thành các phần tương ứng với bill_names (theo thứ tự trong danh sách).
@@ -41,64 +52,28 @@ def split_by_bill_names(text, bill_names):
     """
     sections = []
     text_lower = text.lower()
-    
-    # Dò vị trí xuất hiện của từng bill_name trong text
     positions = []
     for b in bill_names:
-        idx = text_lower.find(b.lower())
-        if idx != -1:
+        # print("Checking bill name:", b)
+        if b == "WAYBILL":
+            idx = text_lower.find(b.lower())
             positions.append((idx, b))
+        else:
+        # Regex: tìm tất cả vị trí 'Invoice 1' KHÔNG có '(continue)' ngay sau
+            for match in re.finditer(rf'\b{re.escape(b)}\b(?!\s*\(continued\))', text_lower, re.IGNORECASE):
+                # print(f"Found '{b}' at position {match.start()}")
+                positions.append((match.start(), b))
+
     
-    # Sắp xếp theo vị trí xuất hiện
-    # positions.sort()
+    positions.sort(key=lambda x: x[0])
     
     # Tách nội dung giữa các bill
     for i, (start_idx, bill) in enumerate(positions):
         end_idx = positions[i+1][0] if i + 1 < len(positions) else len(text)
         content = text[start_idx + len(bill): end_idx].strip()
         sections.append((bill, content))
-        
-        text = text[end_idx:].strip()
     return sections
-def split_by_bill_names(text, bill_names):
-    """
-    Cắt text thành các phần tương ứng với bill_names.
-    - Sau khi lấy một section, loại bỏ phần đó khỏi text.
-    - Không cho phép 2 bill liên tiếp giống nhau.
-    """
-    sections = []
-    text_lower = text.lower()
-    pattern = "|".join([re.escape(b.lower()) for b in bill_names])
 
-    prev_bill = None
-    while True:
-        match = re.search(pattern, text_lower)
-        if not match:
-            break  # không còn bill nào
-
-        bill = next(b for b in bill_names if b.lower() == match.group(0))
-
-        # Bỏ qua nếu trùng với bill trước
-        if bill == prev_bill:
-            # Cắt bỏ phần trùng rồi tiếp tục tìm tiếp
-            text = text[match.end():].strip()
-            text_lower = text.lower()
-            continue
-
-        # Tìm bill tiếp theo (để biết điểm kết thúc)
-        next_match = re.search(pattern, text_lower[match.end():])
-        end_idx = match.end() + next_match.start() if next_match else len(text)
-        content = text[match.end():end_idx].strip()
-
-        # Lưu lại section
-        sections.append((bill, content))
-
-        # Cắt bỏ phần đã xử lý khỏi text
-        text = text[end_idx:].strip()
-        text_lower = text.lower()
-        prev_bill = bill
-
-    return sections
 def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
     """
     Extract info for each bill section based on grouped keywords.
@@ -111,22 +86,28 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
         if verbose:
             print(f"Processing section: {bill_name}")
             print(f"Snippet: {content}...")
-            print("-" * 40)
+            print("-" * 50)
 
+        
         entry = {"Bill Name": bill_name}
         for key, kw_list in keyword_dict.items():
             if not kw_list:
                 entry[key] = "⚠️ Not Found"
                 continue
-            vals = None
-            for kw in kw_list:
+            idx = bill_names.index(bill_name)
+            kw = kw_list[idx]
+            if kw == "":
+                entry[key] = None
+                continue
+            if kw == "Cartons of Footwear Division Goods" or kw == "Cartons of Footwear Division of goods":
+                cont = find_text_before_keyword(content, kw)   
+            else:           
                 cont = find_text_after_keyword(content, kw)
-                if cont is not None:
-                    vals = cont
-            if vals:
-                entry[key] = vals
+
+            if cont:
+                entry[key] = cont
             else:
-                entry[key] = "⚠️ Not Found"
+                entry[key] = None
 
         results.append(entry)
 
@@ -145,41 +126,21 @@ if uploaded_file is not None:
     # Danh sách các keyword cần trích xuất
     bill_names = [
         "WAYBILL",
-        "Trading Company  Commercial Invoice",
+        "Trading Company Commercial Invoice",
         "Factory Commercial Invoice",
-        "Factory Packing List ",
+        "Factory Packing List",
         "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
-        "Japan Customs Form",
-            "WAYBILL",
-        "Trading Company  Commercial Invoice",
-        "Factory Commercial Invoice",
-        "Factory Packing List ",
-        "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
-        "Japan Customs Form",
-            "WAYBILL",
-        "Trading Company  Commercial Invoice",
-        "Factory Commercial Invoice",
-        "Factory Packing List ",
-        "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
-        "Japan Customs Form",
-                "WAYBILL",
-        "Trading Company  Commercial Invoice",
-        "Factory Commercial Invoice",
-        "Factory Packing List ",
-        "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
-        "Japan Customs Form",
+        "Japan Customs Form"
     ]
 
-
     keywords = {
-        "INV": ["Invoice#:", "Invoice Number:", "Invoice Number.:", "INVOICE NO."],
-        "Total weight": ["Total Gross Kgs:", "Total Gross Weight:"],
-        "total volume": [],
-        "PO": ["PO-Item:", "P.O.#:", "PO#:", "PO Number:", "Reference PO#:"],
-        "PO line": ["ITEM:", "PO Line Item Seq.#:", "PO Line#:", "Item Seq.:", "Sizes:"],
-        "Style": ["Material:", "Material No:", "Material#:", "MATERIAL", "Material #:"],
-        "total carton": ["Amount", "Cartons:"],
-        "total quantity": ["Total Quantity:", "Total Qty:", "Qty:", "Quantity:"]
+        "INV": ["Invoice#:", "Reference Invoice #:", "Invoice Number:", "Invoice Number.:", "INVOICE NO.", ""],
+        "Total weight": ["", "Total Gross Weight:", "Total Gross Weight:", "Total Gross Kgs:", "",""],
+        "PO": ["PO-Item:", "PO#:", "Reference PO#:", "Reference PO#:", "P.O. #:", ""],
+        "PO line": ["", "PO Line Item Seq.#: ", "PO Line Item Seq. #:", "Item Seq.:", "ITEM :", ""],
+        "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL", ""],
+        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "", "", ""],
+        "total quantity": ["Qty:", "Total Invoice ", "Total Invoice Quantity:", "", "",""]
     }
         
     df = extract_bill_sections(text, bill_names, keywords)
@@ -189,9 +150,15 @@ if uploaded_file is not None:
             df.loc[i, "PO"] = parts[0]
             df.loc[i, "PO line"] = parts[1] if len(parts) > 1 else None
         df["PO"] = df["PO"].astype(str).str.split(",").str[0]
+        df["PO"] = df["PO"].astype(str).str.split(" ").str[0]
         df["PO line"] = df["PO line"].astype(str).str.split(",").str[0]
+        df["Style"] = df["Style"].astype(str).str.split(",").str[0]
+        df["Style"] = df["Style"].astype(str).str.split(" ").str[0]
+        df["PO line"] = df["PO line"].astype(str).str.split(" ").str[0]
+        df["INV"] = df["INV"].astype(str).str.split(" ").str[0]
         df["total quantity"] = df["total quantity"].astype(str).str.split(" ").str[0]
-
+        df["total carton"] = df["total carton"].astype(str).str.split("  ").str[0]
+        df["total volume"] = None
     # Tạo Excel in-memory
     output = io.BytesIO()
     df.to_excel(output, index=False, engine='openpyxl')
