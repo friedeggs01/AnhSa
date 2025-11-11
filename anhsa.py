@@ -18,6 +18,28 @@ def extract_text_from_pdf(pdf_file):
 def find_text_before_keyword(text, keyword):
     """
     Extract the number (or text) immediately before the given keyword.
+    Example:
+        '31 Cartons of Footwear Division of Goods' -> '31'
+        '25 Cartons of Apparel Division goods'     -> '25'
+    Supports:
+        - Any single word between 'Cartons of' and 'Division'
+        - Both 'Division of goods' and 'Division goods'
+        - Any capitalization of 'Goods' or 'goods'
+    """
+    # Nếu keyword có chứa 'Cartons of', dùng regex linh hoạt
+    if re.search(r"Cartons of", keyword, re.IGNORECASE):
+        # Cho phép có hoặc không có 'of' trước 'Goods'
+        pattern = r"(\d+)\s+(?=Cartons of \w+ Division(?: of)? [Gg]oods)"
+    else:
+        # Trường hợp bình thường
+        pattern = rf"(\d+)\s+(?={re.escape(keyword)})"
+
+    match = re.search(pattern, text, re.IGNORECASE)
+    return match.group(1) if match else None
+
+def find_text_before_keyword_2(text, keyword):
+    """
+    Extract the number (or text) immediately before the given keyword.
     Example: '31 Cartons of Footwear Division Goods' -> '31'
     """
     pattern = rf'(\d+)\s+(?={re.escape(keyword)})'
@@ -31,6 +53,7 @@ def find_text_after_keyword(text, keyword, num_chars=50):
     """
     # 1️⃣ Tìm trên cùng dòng
     pattern_same_line = re.escape(keyword) + r"[ \t]*(.{1," + str(num_chars) + r"})"
+    print("Searching for keyword pattern:", pattern_same_line)
     match = re.search(pattern_same_line, text)
     if match:
         result = match.group(1).strip()
@@ -40,6 +63,31 @@ def find_text_after_keyword(text, keyword, num_chars=50):
     # 2️⃣ Nếu không có, tìm ở dòng kế tiếp
     pattern_next_line = re.escape(keyword) + r"\s*\n\s*(.{1," + str(num_chars) + r"})"
     match = re.search(pattern_next_line, text)
+    if match:
+        return match.group(1).strip()
+
+    return None
+
+def find_text_after_style(text, keyword, num_chars=50):
+    """
+    Tìm nội dung sau một keyword.
+    Keyword phải có ít nhất 1 khoảng trắng sau từ chính, hoặc dấu ':' / '#:'.
+    Hỗ trợ các biến thể: 'MATERIAL ', 'MATERIAL:', 'MATERIAL #:'.
+    """
+    # Bắt buộc có ít nhất 1 space sau từ, có thể có ':' hoặc '#:' theo sau
+    keyword_pattern = re.escape(keyword.rstrip(".:")) + r"(?:[.:]+)?(?:\s+(?:#?:)?)"
+
+    # 1️⃣ Tìm trên cùng dòng
+    pattern_same_line = keyword_pattern + r"(.{1," + str(num_chars) + r"})"
+    match = re.search(pattern_same_line, text, re.IGNORECASE)
+    if match:
+        result = match.group(1).strip()
+        if result:
+            return result
+
+    # 2️⃣ Tìm ở dòng kế tiếp nếu không có gì trên cùng dòng
+    pattern_next_line = keyword_pattern + r"\s*\n\s*(.{1," + str(num_chars) + r"})"
+    match = re.search(pattern_next_line, text, re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
@@ -83,10 +131,10 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
     results = []
 
     for bill_name, content in sections:
-        if verbose:
-            print(f"Processing section: {bill_name}")
-            print(f"Snippet: {content}...")
-            print("-" * 50)
+        # if verbose:
+        #     # print(f"Processing section: {bill_name}")
+        #     # print(f"Snippet: {content}...")
+        #     # print("-" * 50)
 
         
         entry = {"Bill Name": bill_name}
@@ -100,8 +148,38 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
                 entry[key] = None
                 continue
             if kw == "Cartons of Footwear Division Goods" or kw == "Cartons of Footwear Division of goods":
-                cont = find_text_before_keyword(content, kw)   
-            else:           
+                cont = find_text_before_keyword(content, kw) 
+                if cont is None:
+                    cont = find_text_before_keyword_2(content, "CNTS OF NIKE FOOTWEAR GOODS")  
+                if cont is None:
+                    cont = find_text_before_keyword_2(content, "CARTONS")
+            elif kw == "MATERIAL:" or kw == "INVOICE NO":      
+                cont = find_text_after_style(content, kw)
+            elif kw == "P.O. #:":
+                cont = find_text_after_keyword(content, kw)
+                if cont is None:
+                    kw = "PO#:"
+                    cont = find_text_after_keyword(content, kw)
+            elif kw == "PO-Item:":
+                cont = find_text_after_keyword(content, kw)
+                if cont is None:
+                    kw = "PO: "
+                    cont = find_text_after_keyword(content, kw)
+                    print(cont)
+            elif kw == "ITEM :":
+                cont = find_text_after_keyword(content, kw)
+                if cont is None:
+                    kw = "PO LINE ITEM SEQ. #:"
+                    cont = find_text_after_keyword(content, kw)
+                if cont is None:
+                    kw = "PO Line Item Seq. #:"
+                    cont = find_text_after_keyword(content, kw)
+            elif kw == "Invoice#:":
+                cont = find_text_after_keyword(content, kw)
+                if cont is None:
+                    kw = "Invoice number:"
+                    cont = find_text_after_keyword(content, kw)
+            else:
                 cont = find_text_after_keyword(content, kw)
 
             if cont:
@@ -112,6 +190,7 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
         results.append(entry)
 
     return pd.DataFrame(results)
+
 
 # --- Streamlit UI ---
 st.title("📄 PDF to Excel Extractor")
@@ -134,12 +213,12 @@ if uploaded_file is not None:
     ]
 
     keywords = {
-        "INV": ["Invoice#:", "Reference Invoice #:", "Invoice Number:", "Invoice Number.:", "INVOICE NO.", ""],
+        "INV": ["Invoice#:", "Reference Invoice #:", "Invoice Number:", "Invoice Number.:", "INVOICE NO", ""],
         "Total weight": ["", "Total Gross Weight:", "Total Gross Weight:", "Total Gross Kgs:", "",""],
         "PO": ["PO-Item:", "PO#:", "Reference PO#:", "Reference PO#:", "P.O. #:", ""],
         "PO line": ["", "PO Line Item Seq.#: ", "PO Line Item Seq. #:", "Item Seq.:", "ITEM :", ""],
-        "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL", ""],
-        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "", "", ""],
+        "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL:", ""],
+        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "", "Cartons of Footwear Division Goods", ""],
         "total quantity": ["Qty:", "Total Invoice ", "Total Invoice Quantity:", "", "",""]
     }
         
