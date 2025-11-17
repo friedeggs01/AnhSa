@@ -53,7 +53,6 @@ def find_text_after_keyword(text, keyword, num_chars=50):
     """
     # 1️⃣ Tìm trên cùng dòng
     pattern_same_line = re.escape(keyword) + r"[ \t]*(.{1," + str(num_chars) + r"})"
-    print("Searching for keyword pattern:", pattern_same_line)
     match = re.search(pattern_same_line, text)
     if match:
         result = match.group(1).strip()
@@ -102,14 +101,12 @@ def split_by_bill_names(text, bill_names):
     text_lower = text.lower()
     positions = []
     for b in bill_names:
-        # print("Checking bill name:", b)
         if b == "WAYBILL":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
         else:
         # Regex: tìm tất cả vị trí 'Invoice 1' KHÔNG có '(continue)' ngay sau
             for match in re.finditer(rf'\b{re.escape(b)}\b(?!\s*\(continued\))', text_lower, re.IGNORECASE):
-                # print(f"Found '{b}' at position {match.start()}")
                 positions.append((match.start(), b))
 
     
@@ -122,6 +119,11 @@ def split_by_bill_names(text, bill_names):
         sections.append((bill, content))
     return sections
 
+def split_waybill_blocks(text):
+    pattern = r"(\d+\s*CTN\s*//.*?\*{34,})"
+    blocks = re.findall(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+    return blocks
+
 def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
     """
     Extract info for each bill section based on grouped keywords.
@@ -130,13 +132,68 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
     sections = split_by_bill_names(text, bill_names)
     results = []
 
-    for bill_name, content in sections:
-        # if verbose:
-        #     # print(f"Processing section: {bill_name}")
-        #     # print(f"Snippet: {content}...")
-        #     # print("-" * 50)
+    for bill_name, content in sections:            
+        if bill_name == "WAYBILL":
+            blocks = split_waybill_blocks(content)
+            for i, block in enumerate(blocks):
+                entry = {"Bill Name": f"WAYBILL_{i+1}"}
+                for key, kw_list in keyword_dict.items():
+                    if not kw_list:
+                        entry[key] = "⚠️ Not Found"
+                        continue
+                    idx = bill_names.index(bill_name)
+                    kw = kw_list[idx]
+                    if kw == "":
+                        entry[key] = None
+                        continue
+                    if kw == "Cartons of Footwear Division Goods" or kw == "Cartons of Footwear Division of goods":
+                        cont = find_text_before_keyword(block, kw) 
+                        if cont is None:
+                            cont = find_text_before_keyword_2(block, "CNTS OF NIKE FOOTWEAR GOODS")  
+                        if cont is None:
+                            cont = find_text_before_keyword_2(block, "CARTONS")
+                        if cont is None:
+                            cont = find_text_before_keyword_2(block, "CTN")
+                    elif kw == "PO-Item:":
+                        cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "PO: "
+                            cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "PO:"
+                            cont = find_text_after_keyword(block, kw)
+                    elif kw == "Invoice#:":
+                        cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "Invoice number:"
+                            cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "INVOICE NUMBER:"
+                            cont = find_text_after_keyword(block, kw)
+                    elif kw == "Material:":
+                        cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "MATERIAL:"
+                            cont = find_text_after_keyword(block, kw)
+                    elif kw == "Qty:":
+                        cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "Quantity:"
+                            cont = find_text_after_keyword(block, kw)
+                        if cont is None:
+                            kw = "QUANTITY:"
+                            cont = find_text_after_keyword(block, kw)
+                    else:
+                        cont = find_text_after_keyword(block, kw)
 
-        
+                    if cont:
+                        entry[key] = cont
+                    else:
+                        entry[key] = None
+            
+                results.append(entry)
+            continue 
+         
         entry = {"Bill Name": bill_name}
         for key, kw_list in keyword_dict.items():
             if not kw_list:
@@ -153,6 +210,8 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
                     cont = find_text_before_keyword_2(content, "CNTS OF NIKE FOOTWEAR GOODS")  
                 if cont is None:
                     cont = find_text_before_keyword_2(content, "CARTONS")
+                if cont is None:
+                    cont = find_text_after_keyword(content, "Total Cartons: ")
             elif kw == "MATERIAL:" or kw == "INVOICE NO":      
                 cont = find_text_after_style(content, kw)
             elif kw == "P.O. #:":
@@ -165,7 +224,6 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
                 if cont is None:
                     kw = "PO: "
                     cont = find_text_after_keyword(content, kw)
-                    print(cont)
             elif kw == "ITEM :":
                 cont = find_text_after_keyword(content, kw)
                 if cont is None:
@@ -218,7 +276,7 @@ if uploaded_file is not None:
         "PO": ["PO-Item:", "PO#:", "Reference PO#:", "Reference PO#:", "P.O. #:", ""],
         "PO line": ["", "PO Line Item Seq.#: ", "PO Line Item Seq. #:", "Item Seq.:", "ITEM :", ""],
         "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL:", ""],
-        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "", "Cartons of Footwear Division Goods", ""],
+        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", ""],
         "total quantity": ["Qty:", "Total Invoice ", "Total Invoice Quantity:", "", "",""]
     }
         
@@ -237,6 +295,7 @@ if uploaded_file is not None:
         df["INV"] = df["INV"].astype(str).str.split(" ").str[0]
         df["total quantity"] = df["total quantity"].astype(str).str.split(" ").str[0]
         df["total carton"] = df["total carton"].astype(str).str.split("  ").str[0]
+        df["total carton"] = df["total carton"].astype(str).str.split(" ").str[0]
         df["total volume"] = None
     # Tạo Excel in-memory
     output = io.BytesIO()
