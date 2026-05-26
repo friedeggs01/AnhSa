@@ -101,7 +101,7 @@ def split_by_bill_names(text, bill_names):
     text_lower = text.lower()
     positions = []
     for b in bill_names:
-        if b == "WAYBILL":
+        if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
         else:
@@ -199,6 +199,8 @@ def extract_bill_sections(text, bill_names, keyword_dict, verbose=False):
             if not kw_list:
                 entry[key] = "⚠️ Not Found"
                 continue
+            if bill_name == "INTERIM FOOTWEAR INVOICE (US)":
+                print(f"Processing {bill_name} - Keyword: {key}")
             idx = bill_names.index(bill_name)
             kw = kw_list[idx]
             if kw == "":
@@ -259,7 +261,7 @@ uploaded_file = st.file_uploader("Chọn file PDF", type=["pdf"])
 if uploaded_file is not None:
     text = extract_text_from_pdf(uploaded_file)
     # st.subheader("🔎 Preview nội dung PDF")
-    # st.text(text[:100000])
+    # st.text(text[:1000000])
     # Danh sách các keyword cần trích xuất
     bill_names = [
         "WAYBILL",
@@ -267,17 +269,18 @@ if uploaded_file is not None:
         "Factory Commercial Invoice",
         "Factory Packing List",
         "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
-        "Japan Customs Form"
+        "Japan Customs Form",
+        "INTERIM FOOTWEAR INVOICE (US)"
     ]
 
     keywords = {
-        "INV": ["Invoice#:", "Reference Invoice #:", "Invoice Number:", "Invoice Number.:", "INVOICE NO", ""],
-        "Total weight": ["", "Total Gross Weight:", "Total Gross Weight:", "Total Gross Kgs:", "",""],
-        "PO": ["PO-Item:", "PO#:", "Reference PO#:", "Reference PO#:", "P.O. #:", ""],
-        "PO line": ["", "PO Line Item Seq.#: ", "PO Line Item Seq. #:", "Item Seq.:", "ITEM :", ""],
-        "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL:", ""],
-        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", ""],
-        "total quantity": ["Qty:", "Total Invoice ", "Total Invoice Quantity:", "", "",""]
+        "INV": ["Invoice#:", "Reference Invoice #:", "Invoice Number:", "Invoice Number.:", "INVOICE NO", "", ""],
+        "Total weight": ["", "Total Gross Weight:", "Total Gross Weight:", "Total Gross Kgs:", "", "", ""],
+        "PO": ["PO-Item:", "PO#:", "Reference PO#:", "Reference PO#:", "P.O. #:", "", ""],
+        "PO line": ["", "PO Line Item Seq.#: ", "PO Line Item Seq. #:", "Item Seq.:", "ITEM :", "", ""],
+        "Style": ["Material:", "Material#:", "Material #:", "Material:", "MATERIAL:", "STYLE/CLR:","STYLE/CLR:"],
+        "total carton": ["Cartons of Footwear Division of goods", "Cartons of Footwear Division Goods",  "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", "Cartons of Footwear Division Goods", "", ""],
+        "total quantity": ["Qty:", "Total Invoice ", "Total Invoice Quantity:", "", "","", ""]
     }
         
     df = extract_bill_sections(text, bill_names, keywords)
@@ -290,7 +293,11 @@ if uploaded_file is not None:
         df["PO"] = df["PO"].astype(str).str.split(" ").str[0]
         df["PO line"] = df["PO line"].astype(str).str.split(",").str[0]
         df["Style"] = df["Style"].astype(str).str.split(",").str[0]
-        df["Style"] = df["Style"].astype(str).str.split(" ").str[0]
+        if "-" in str(df["Style"].iloc[i]):
+            df["Style"].iloc[i] = str(df["Style"].iloc[i]).split(" ")[0]
+        else:
+            print("No '-' in Style:", df["Style"].iloc[i])
+            df["Style"].iloc[i] = " ".join(str(df["Style"].iloc[i]).split(" ")[:2])
         df["PO line"] = df["PO line"].astype(str).str.split(" ").str[0]
         df["INV"] = df["INV"].astype(str).str.split(" ").str[0]
         df["total quantity"] = df["total quantity"].astype(str).str.split(" ").str[0]
