@@ -104,9 +104,17 @@ def split_by_bill_names(text, bill_names):
         if b == "WAYBILL":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
+        elif b == "INTERIM FOOTWEAR INVOICE (US)":
+            start = 0
+
+            while True:
+                idx = text_lower.find(b.lower(), start)
+                if idx == -1:
+                    break
+
+                positions.append((idx, b))
+                start = idx + len(b)
         else:
-            if b == "INTERIM FOOTWEAR INVOICE (US)":
-                b = b.lower()
         # Regex: tìm tất cả vị trí 'Invoice 1' KHÔNG có '(continue)' ngay sau
             for match in re.finditer(rf'\b{re.escape(b)}\b(?!\s*\(continued\))', text_lower, re.IGNORECASE):
                 positions.append((match.start(), b))
@@ -119,6 +127,7 @@ def split_by_bill_names(text, bill_names):
         end_idx = positions[i+1][0] if i + 1 < len(positions) else len(text)
         content = text[start_idx + len(bill): end_idx].strip()
         sections.append((bill, content))
+
     return sections
 
 def split_waybill_blocks(text):
