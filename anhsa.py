@@ -101,8 +101,7 @@ def split_by_bill_names(text, bill_names):
     text_lower = text.lower()
     positions = []
     for b in bill_names:
-        # if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
-        if b == "WAYBILL":
+        if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
         else:
@@ -271,7 +270,7 @@ if uploaded_file is not None:
         "Factory Packing List",
         "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
         "Japan Customs Form",
-        "interim footwear invoice (us)"
+        "INTERIM FOOTWEAR INVOICE (US)"
     ]
 
     keywords = {
