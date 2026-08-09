@@ -101,7 +101,8 @@ def split_by_bill_names(text, bill_names):
     text_lower = text.lower()
     positions = []
     for b in bill_names:
-        if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
+        # if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
+        if b == "WAYBILL":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
         else:
