@@ -271,7 +271,8 @@ if uploaded_file is not None:
         "Factory Packing List",
         "MULTIPLE COUNTRY OF ORIGIN DECLARATION",
         "Japan Customs Form",
-        "INTERIM FOOTWEAR INVOICE (US)"
+        "INTERIM FOOTWEAR INVOICE (US)",
+        "interim footwear invoice (us)"
     ]
 
     keywords = {
