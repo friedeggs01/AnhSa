@@ -101,10 +101,12 @@ def split_by_bill_names(text, bill_names):
     text_lower = text.lower()
     positions = []
     for b in bill_names:
-        if b == "WAYBILL" or b == "INTERIM FOOTWEAR INVOICE (US)":
+        if b == "WAYBILL":
             idx = text_lower.find(b.lower())
             positions.append((idx, b))
         else:
+            if b == "INTERIM FOOTWEAR INVOICE (US)":
+                b = b.lower()
         # Regex: tìm tất cả vị trí 'Invoice 1' KHÔNG có '(continue)' ngay sau
             for match in re.finditer(rf'\b{re.escape(b)}\b(?!\s*\(continued\))', text_lower, re.IGNORECASE):
                 positions.append((match.start(), b))
